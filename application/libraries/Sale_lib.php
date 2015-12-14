@@ -22,7 +22,7 @@ class Sale_lib
 		$this->CI->session->set_userdata('cart',$cart_data);
 	}
 
-	//Alain Multiple Payments
+	// Multiple Payments
 	function get_payments()
 	{
 		if( !$this->CI->session->userdata( 'payments' ) )
@@ -31,7 +31,7 @@ class Sale_lib
 		return $this->CI->session->userdata('payments');
 	}
 
-	//Alain Multiple Payments
+	// Multiple Payments
 	function set_payments($payments_data)
 	{
 		$this->CI->session->set_userdata('payments',$payments_data);
@@ -39,7 +39,9 @@ class Sale_lib
 	
 	function get_comment() 
 	{
-		return $this->CI->session->userdata('comment');
+		// avoid returning a null that results in a 0 in the comment if nothing is set/available
+		$comment = $this->CI->session->userdata('comment');
+    	return empty($comment) ? '' : $comment;
 	}
 
 	function set_comment($comment) 
@@ -57,9 +59,14 @@ class Sale_lib
 		return $this->CI->session->userdata('sales_invoice_number');
 	}
 	
-	function set_invoice_number($invoice_number)
+	function set_invoice_number($invoice_number, $keep_custom = FALSE)
 	{
-		$this->CI->session->set_userdata('sales_invoice_number', $invoice_number);
+		$current_invoice_number = $this->CI->session->userdata('sales_invoice_number');
+		if (!$keep_custom || empty($current_invoice_number))
+		{
+			$this->CI->session->set_userdata('sales_invoice_number', $invoice_number);
+		}
+
 	}
 	
 	function clear_invoice_number()
@@ -130,7 +137,7 @@ class Sale_lib
 
 	}
 
-	//Alain Multiple Payments
+	// Multiple Payments
 	function edit_payment($payment_id,$payment_amount)
 	{
 		$payments = $this->get_payments();
@@ -144,7 +151,7 @@ class Sale_lib
 		return false;
 	}
 
-	//Alain Multiple Payments
+	// Multiple Payments
 	function delete_payment( $payment_id )
 	{
 		$payments = $this->get_payments();
@@ -152,13 +159,13 @@ class Sale_lib
 		$this->set_payments( $payments );
 	}
 
-	//Alain Multiple Payments
+	// Multiple Payments
 	function empty_payments()
 	{
 		$this->CI->session->unset_userdata('payments');
 	}
 
-	//Alain Multiple Payments
+	// Multiple Payments
 	function get_payments_total()
 	{
 		$subtotal = 0;
@@ -169,7 +176,7 @@ class Sale_lib
 		return to_currency_no_money($subtotal);
 	}
 
-	//Alain Multiple Payments
+	// Multiple Payments
 	function get_amount_due()
 	{
 		$amount_due=0;
@@ -209,7 +216,7 @@ class Sale_lib
     {
         if(!$this->CI->session->userdata('sale_location'))
         {
-             $location_id = $this->CI->Stock_locations->get_default_location_id();
+             $location_id = $this->CI->Stock_location->get_default_location_id();
              $this->set_sale_location($location_id);
         }
         return $this->CI->session->userdata('sale_location');
@@ -248,7 +255,7 @@ class Sale_lib
             return false;
         }
 
-		//Alain Serialization and Description
+		// Serialization and Description
 
 		//Get all items in the cart so far...
 		$items = $this->get_cart();
@@ -262,7 +269,7 @@ class Sale_lib
         $itemalreadyinsale=FALSE;        //We did not find the item yet.
 		$insertkey=0;                    //Key to use for new entry.
 		$updatekey=0;                    //Key to use to update(quantity)
-
+        $item_info=$this->CI->Item->get_info($item_id,$item_location);
 		foreach ($items as $item)
 		{
             //We primed the loop so maxkey is 0 the first time.
@@ -276,46 +283,52 @@ class Sale_lib
 			if($item['item_id']==$item_id && $item['item_location']==$item_location)
 			{
 				$itemalreadyinsale=TRUE;
-				$updatekey=$item['line'];
+				$updatekey = $item['line'];
+                if (!$item_info->is_serialized)
+                {
+                    $quantity += $items[$updatekey]['quantity'];
+                }
 			}
 		}
 
 		$insertkey=$maxkey+1;
-		$item_info=$this->CI->Item->get_info($item_id,$item_location);
 		//array/cart records are identified by $insertkey and item_id is just another field.
 		$price=$price!=null?$price:$item_info->unit_price;
 		$total=$this->get_item_total($quantity, $price, $discount);
-		$item = array(($insertkey)=>
-		array(
-			'item_id'=>$item_id,
-			'item_location'=>$item_location,
-			'stock_name'=>$this->CI->Stock_locations->get_location_name($item_location),
-			'line'=>$insertkey,
-			'name'=>$item_info->name,
-			'item_number'=>$item_info->item_number,
-			'description'=>$description!=null ? $description: $item_info->description,
-			'serialnumber'=>$serialnumber!=null ? $serialnumber: '',
-			'allow_alt_description'=>$item_info->allow_alt_description,
-			'is_serialized'=>$item_info->is_serialized,
-			'quantity'=>$quantity,
-            'discount'=>$discount,
-			'in_stock'=>$this->CI->Item_quantities->get_item_quantity($item_id, $item_location)->quantity,
-			'price'=>$price,
-			'total'=>$total,
-			'discounted_total'=>$this->get_item_total($quantity, $price, $discount, TRUE)
-			)
-		);
-
+        $discounted_total=$this->get_item_total($quantity, $price, $discount, TRUE);
 		//Item already exists and is not serialized, add to quantity
-		if($itemalreadyinsale && ($item_info->is_serialized ==0) )
+		if(!$itemalreadyinsale || $item_info->is_serialized)
 		{
-			$items[$updatekey]['quantity']+=$quantity;
-		}
-		else
-		{
+            $item = array(($insertkey)=>
+                array(
+                    'item_id'=>$item_id,
+                    'item_location'=>$item_location,
+                    'stock_name'=>$this->CI->Stock_location->get_location_name($item_location),
+                    'line'=>$insertkey,
+                    'name'=>$item_info->name,
+                    'item_number'=>$item_info->item_number,
+                    'description'=>$description!=null ? $description: $item_info->description,
+                    'serialnumber'=>$serialnumber!=null ? $serialnumber: '',
+                    'allow_alt_description'=>$item_info->allow_alt_description,
+                    'is_serialized'=>$item_info->is_serialized,
+                    'quantity'=>$quantity,
+                    'discount'=>$discount,
+                    'in_stock'=>$this->CI->Item_quantity->get_item_quantity($item_id, $item_location)->quantity,
+                    'price'=>$price,
+                    'total'=>$total,
+                    'discounted_total'=>$discounted_total
+                )
+            );
 			//add to existing array
 			$items+=$item;
 		}
+        else
+        {
+            $line = &$items[$updatekey];
+            $line['quantity'] = $quantity;
+            $line['total'] = $total;
+            $line['discounted_total'] = $discounted_total;
+        }
 
 		$this->set_cart($items);
 		return true;
@@ -332,7 +345,7 @@ class Sale_lib
 
 		
 		//$item = $this->CI->Item->get_info($item_id);
-		$item_quantity = $this->CI->Item_quantities->get_item_quantity($item_id,$item_location)->quantity; 
+		$item_quantity = $this->CI->Item_quantity->get_item_quantity($item_id,$item_location)->quantity;
 		$quantity_added = $this->get_quantity_already_added($item_id,$item_location);
 		
 		if ($item_quantity - $quantity_added < 0)

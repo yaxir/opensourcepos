@@ -99,7 +99,7 @@ class Reports extends Secure_area
 
 	function get_summary_data($start_date, $end_date = NULL, $sale_type=0)
 	{
-		$end_date = $end_date ?: $start_date;
+		$end_date = $end_date ? $end_date : $start_date;
 		$this->load->model('reports/Summary_sales');
 		$model = $this->Summary_sales;
 		$summary = $model->getSummaryData(array(
@@ -346,7 +346,7 @@ class Reports extends Secure_area
 	function date_input_sales()
 	{
 		$data = $this->_get_common_report_data();
-		$stock_locations = $this->Stock_locations->get_allowed_locations('sales');
+		$stock_locations = $this->Stock_location->get_allowed_locations('sales');
 		$stock_locations['all'] =  $this->lang->line('reports_all');
 		$data['stock_locations'] = array_reverse($stock_locations, TRUE);
         $data['mode'] = 'sale';
@@ -356,7 +356,7 @@ class Reports extends Secure_area
     function date_input_recv()
     {
         $data = $this->_get_common_report_data();
-		$stock_locations = $this->Stock_locations->get_allowed_locations('receivings');
+		$stock_locations = $this->Stock_location->get_allowed_locations('receivings');
 		$stock_locations['all'] =  $this->lang->line('reports_all');
 		$data['stock_locations'] = array_reverse($stock_locations, TRUE);
  		$data['mode'] = 'receiving';
@@ -868,7 +868,7 @@ class Reports extends Secure_area
 		$summary_data = array();
 		$details_data = array();
 
-		$show_locations = $this->Stock_locations->multiple_locations();
+		$show_locations = $this->Stock_location->multiple_locations();
 
 		foreach($report_data['summary'] as $key=>$row)
 		{
@@ -879,7 +879,7 @@ class Reports extends Secure_area
 				$quantity_purchased = $drow['quantity_purchased'];
 				if ($show_locations)
 				{
-					$quantity_purchased .= ' [' . $this->Stock_locations->get_location_name($drow['item_location']) . ']';
+					$quantity_purchased .= ' [' . $this->Stock_location->get_location_name($drow['item_location']) . ']';
 				}
 				$details_data[$key][] = array($drow['name'], $drow['category'], $drow['serialnumber'], $drow['description'], $quantity_purchased, to_currency($drow['subtotal']), to_currency($drow['total']), to_currency($drow['tax']), to_currency($drow['cost']), to_currency($drow['profit']), $drow['discount_percent'].'%');
 			}
@@ -911,7 +911,7 @@ class Reports extends Secure_area
 		$summary_data = array();
 		$details_data = array();
 
-		$show_locations = $this->Stock_locations->multiple_locations();
+		$show_locations = $this->Stock_location->multiple_locations();
 
 		foreach($report_data['summary'] as $key=>$row)
 		{
@@ -922,7 +922,7 @@ class Reports extends Secure_area
 				$quantity_purchased = $drow['receiving_quantity'] > 1 ? $drow['quantity_purchased'] . ' x ' . $drow['receiving_quantity'] : $drow['quantity_purchased'];
 				if ($show_locations)
 				{
-					$quantity_purchased .= ' [' . $this->Stock_locations->get_location_name($drow['item_location']) . ']';
+					$quantity_purchased .= ' [' . $this->Stock_location->get_location_name($drow['item_location']) . ']';
 				}
 				$details_data[$key][] = array($drow['item_number'], $drow['name'], $drow['category'], $quantity_purchased, to_currency($drow['total']), $drow['discount_percent'].'%');
 			}
@@ -972,15 +972,38 @@ class Reports extends Secure_area
 		$this->load->view("reports/tabular",$data);
 	}
 
-	function inventory_summary($export_excel=0)
+	function inventory_summary_input()
+	{
+		$data = array();
+
+		$this->load->model('reports/Inventory_Summary');
+		$model = $this->Inventory_Summary;
+		$data['item_count'] = $model->getItemCountDropdownArray();
+
+		$stock_locations = $this->Stock_location->get_allowed_locations();
+		$stock_locations['all'] =  $this->lang->line('reports_all');
+		$data['stock_locations'] = array_reverse($stock_locations, TRUE);
+
+		$this->load->view("reports/inventory_summary_input", $data);
+	}
+
+	function inventory_summary($export_excel=0, $location_id = 'all', $item_count = 'all')
 	{
 		$this->load->model('reports/Inventory_summary');
 		$model = $this->Inventory_summary;
 		$tabular_data = array();
-		$report_data = $model->getData(array());
+		$report_data = $model->getData(array('location_id'=>$location_id,'item_count'=>$item_count));
 		foreach($report_data as $row)
 		{
-			$tabular_data[] = array($row['name'], $row['item_number'], $row['description'], $row['quantity'], $row['reorder_level'],$row['location_name']);
+			$tabular_data[] = array($row['name'],
+								$row['item_number'],
+								$row['description'],
+								$row['quantity'],
+								$row['reorder_level'],
+								$row['location_name'],
+								to_currency($row['cost_price']),
+								to_currency($row['unit_price']),
+								to_currency($row['sub_total_value']));
 		}
 
 		$data = array(
@@ -988,7 +1011,7 @@ class Reports extends Secure_area
 			"subtitle" => '',
 			"headers" => $model->getDataColumns(),
 			"data" => $tabular_data,
-			"summary_data" => $model->getSummaryData(array()),
+			"summary_data" => $model->getSummaryData($report_data),
 			"export_excel" => $export_excel
 		);
 
